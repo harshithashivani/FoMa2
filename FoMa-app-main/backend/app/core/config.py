@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     SIMULATOR_ENABLED: bool = True
     SIMULATOR_INTERVAL_SECONDS: float = 5.0
 
+    # --- Auth -----------------------------------------------------------
+    # CHANGE THIS in production — anyone with this value can forge tokens.
+    # Set a real random value via the SECRET_KEY environment variable.
+    SECRET_KEY: str = "dev-only-change-this-secret-key"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]

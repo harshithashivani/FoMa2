@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, text
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.db.seed import seed_if_empty
-from app.routers import alerts, analytics, equipment, inventory, notifications, production, settings as settings_router, ws
+from app.routers import alerts, analytics, auth, equipment, inventory, notifications, production, settings as settings_router, ws
 from app.services.simulator import run_simulator
 
 # Import all models so they're registered on Base.metadata before create_all.
@@ -19,6 +19,7 @@ from app.models import inventory as _inventory_models  # noqa: F401
 from app.models import production as _production_models  # noqa: F401
 from app.models import settings as _settings_models  # noqa: F401
 from app.models import telemetry as _telemetry_models  # noqa: F401
+from app.models import user as _user_models  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("foma.main")
@@ -76,6 +77,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(inventory.router)
 app.include_router(equipment.router)
 app.include_router(production.router)

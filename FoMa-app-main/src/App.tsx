@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   AlertTriangle,
   Bell,
@@ -24,8 +24,15 @@ import {
   toggleAutoOrder,
   addInventoryItem,
   connectLiveUpdates,
+  getToken,
+  fetchCurrentUser,
+  logout as apiLogout,
+  setUnauthorizedHandler,
+  updateAvatar,
+  type AuthUser,
 } from './lib/api';
 import type { InventoryItem, EquipmentCheck, ProductionBatch, Alert, Notification } from './types';
+import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { PlanningView } from './views/PlanningView';
 import { InventoryView } from './views/InventoryView';
@@ -41,7 +48,14 @@ const navItems = [
   { label: 'Analytics', icon: TrendingUp },
 ];
 
+const DEFAULT_AVATAR_URL =
+  'https://lh3.googleusercontent.com/aida-public/AB6AXuAyxkVEHZxRm-BK7zr54xDb2z8c3ZrpcuEhFd-xhu6GaPQNOtZZqofJRWCZvvtcowUi9HWrT9KOxY_aQwpHcOronlDtQQeK-HSAwZ604zF-b4zGllVb_svxCiwL-vNKBsptWQwksHYkQG5O6eH6ZRnigQfq-3lPb83eccJamb40V2ta2HQnzC2udCLDgC3pkXNhbnP9GqJnmqwE3eC3FaeSBrGJQdMBsHlkC7xpTK8hOFLhPseBPY6P';
+
 function App() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [avatarError, setAvatarError] = useState('');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [equipmentChecks, setEquipmentChecks] = useState<EquipmentCheck[]>([]);
   const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
@@ -58,7 +72,7 @@ function App() {
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
   const [isEmergencyActive, setIsEmergencyActive] = useState(false);
   const [notice, setNotice] = useState('');
-  const [openPanel, setOpenPanel] = useState<'none' | 'notifications' | 'safety'>('none');
+  const [openPanel, setOpenPanel] = useState<'none' | 'notifications' | 'safety' | 'profile'>('none');
   const [dismissedNotifications, setDismissedNotifications] = useState<number[]>([]);
   const [notifSettings, setNotifSettings] = useState<NotificationSettings>({
     expiryWarnings: true,
@@ -68,9 +82,38 @@ function App() {
     productionDelays: true,
   });
 
-  // ---- Initial load from the API --------------------------------------------
+  // ---- Check for an existing session on first load ---------------------------
   useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAuthUser(null);
+    });
+
     let cancelled = false;
+    async function checkSession() {
+      if (!getToken()) {
+        if (!cancelled) setIsCheckingAuth(false);
+        return;
+      }
+      try {
+        const user = await fetchCurrentUser();
+        if (!cancelled) setAuthUser(user);
+      } catch {
+        // token invalid/expired - handled by setUnauthorizedHandler above
+      } finally {
+        if (!cancelled) setIsCheckingAuth(false);
+      }
+    }
+    checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---- Initial load from the API (once authenticated) ------------------------
+  useEffect(() => {
+    if (!authUser) return;
+    let cancelled = false;
+    setIsLoading(true);
 
     async function load() {
       try {
@@ -97,10 +140,11 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authUser]);
 
-  // ---- Live updates over WebSocket -------------------------------------------
+  // ---- Live updates over WebSocket (once authenticated) -----------------------
   useEffect(() => {
+    if (!authUser) return;
     const disconnect = connectLiveUpdates((event) => {
       if (event.type === 'equipment_metric') {
         const { equipment_id, status } = event.data as { equipment_id: number; status: string };
@@ -126,7 +170,7 @@ function App() {
       }
     });
     return disconnect;
-  }, []);
+  }, [authUser]);
 
   const notifications = useMemo<Notification[]>(() => {
     const items: Notification[] = [];
@@ -193,7 +237,7 @@ function App() {
     setDismissedNotifications(notifications.map((n) => n.id));
   }
 
-  function togglePanel(panel: 'notifications' | 'safety') {
+  function togglePanel(panel: 'notifications' | 'safety' | 'profile') {
     setOpenPanel((current) => (current === panel ? 'none' : panel));
   }
 
@@ -210,9 +254,46 @@ function App() {
     window.setTimeout(() => setNotice(''), 3000);
   }
 
+  function handleAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setAvatarError('Image too large — please choose a photo under 2MB');
+      window.setTimeout(() => setAvatarError(''), 4000);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUri = reader.result as string;
+      try {
+        const updated = await updateAvatar(dataUri);
+        setAuthUser(updated);
+      } catch {
+        setAvatarError('Could not upload photo — check your connection');
+        window.setTimeout(() => setAvatarError(''), 4000);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
   function navigate(page: string) {
     setActiveNav(page);
     setIsMenuOpen(false);
+  }
+
+  if (isCheckingAuth) {
+    return (
+      <div className="app-shell" style={{ alignItems: 'center', justifyContent: 'center', display: 'flex' }}>
+        <p>Loading…</p>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return <LoginView onAuthenticated={setAuthUser} />;
   }
 
   if (isLoading) {
@@ -234,7 +315,7 @@ function App() {
       <aside className={`sidebar ${isMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand">
           <div className="brand-mark"><Factory size={23} /></div>
-          <div><strong>FoMa Ops</strong><span>Facility 01 - {isEmergencyActive ? 'Halted' : 'Active'}</span></div>
+          <div><strong>FoMa</strong><span>Facility 01 - {isEmergencyActive ? 'Halted' : 'Active'}</span></div>
         </div>
         <nav className="main-nav">
           {navItems.map(({ label, icon: Icon }) => (
@@ -308,7 +389,51 @@ function App() {
                 </div>
               )}
             </div>
-            <img className="avatar" alt="Plant manager" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyxkVEHZxRm-BK7zr54xDb2z8c3ZrpcuEhFd-xhu6GaPQNOtZZqofJRWCZvvtcowUi9HWrT9KOxY_aQwpHcOronlDtQQeK-HSAwZ604zF-b4zGllVb_svxCiwL-vNKBsptWQwksHYkQG5O6eH6ZRnigQfq-3lPb83eccJamb40V2ta2HQnzC2udCLDgC3pkXNhbnP9GqJnmqwE3eC3FaeSBrGJQdMBsHlkC7xpTK8hOFLhPseBPY6P" />
+            <div className="icon-wrapper">
+              <button className={openPanel === 'profile' ? 'active-icon' : ''} onClick={() => togglePanel('profile')} aria-label="Profile">
+                <img className="avatar" alt="Plant manager" src={authUser.avatar_data || DEFAULT_AVATAR_URL} />
+              </button>
+              {openPanel === 'profile' && (
+                <div className="dropdown-panel profile-panel" onClick={(e) => e.stopPropagation()}>
+                  <div className="panel-header">
+                    <div><h3>Plant Manager</h3></div>
+                    <button onClick={() => setOpenPanel('none')} aria-label="Close"><X size={16} /></button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
+                    <img
+                      className="avatar"
+                      alt="Your profile"
+                      src={authUser.avatar_data || DEFAULT_AVATAR_URL}
+                      style={{ width: 48, height: 48 }}
+                    />
+                    <label className="clear-all" style={{ cursor: 'pointer' }}>
+                      Change photo
+                      <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+                    </label>
+                  </div>
+                  {avatarError && <p style={{ color: '#c0392b', fontSize: 12, padding: '0 16px' }}>{avatarError}</p>}
+                  <div className="panel-list">
+                    <div className="safety-item">
+                      <div><strong>{authUser.name}</strong><p>{authUser.email}</p></div>
+                    </div>
+                    <div className="safety-item">
+                      <div><strong>Facility 01</strong><p>{authUser.role}</p></div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 16px' }}>
+                    <button className="nav-item" onClick={() => { setOpenPanel('none'); setIsSettingsOpen(true); }}>
+                      <Settings size={18} /><span>Account Settings</span>
+                    </button>
+                    <button className="nav-item" onClick={() => { setOpenPanel('none'); setIsSupportOpen(true); }}>
+                      <CircleHelp size={18} /><span>Help &amp; Support</span>
+                    </button>
+                    <button className="clear-all" onClick={() => { setOpenPanel('none'); apiLogout(); setAuthUser(null); }}>
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

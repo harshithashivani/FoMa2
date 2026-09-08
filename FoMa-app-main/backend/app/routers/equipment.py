@@ -3,11 +3,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user
 from app.models.equipment import Equipment
 from app.models.telemetry import EquipmentMetric
 from app.schemas.equipment import EquipmentMetricOut, EquipmentOut
 
-router = APIRouter(prefix="/api/equipment", tags=["equipment"])
+router = APIRouter(prefix="/api/equipment", tags=["equipment"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("", response_model=list[EquipmentOut])

@@ -4,11 +4,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user
 from app.models.alerts import DismissedNotification
 from app.schemas.notifications import NotificationOut
 from app.services.notifications import compute_notifications
 
-router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+router = APIRouter(prefix="/api/notifications", tags=["notifications"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("", response_model=list[NotificationOut])

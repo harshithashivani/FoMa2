@@ -9,10 +9,12 @@ import datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import hash_password
 from app.models.alerts import Alert, AlertSeverity
 from app.models.equipment import Equipment, EquipmentStatus
 from app.models.inventory import ExpiryTone, InventoryItem
 from app.models.production import BatchStatus, ProductionBatch
+from app.models.user import User
 
 
 async def seed_if_empty(db: AsyncSession) -> None:
@@ -97,6 +99,15 @@ async def seed_if_empty(db: AsyncSession) -> None:
                   message="Daily waste report generated — Week 4 down 40%",
                   source="Analytics Engine"),
         ]
+    )
+
+    db.add(
+        User(
+            email="manager@foma.example",
+            hashed_password=hash_password("foma-demo-123"),
+            name="Alex Rivera",
+            role="Plant Manager",
+        )
     )
 
     await db.commit()

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user
 from app.core.events import event_bus
 from app.models.inventory import ExpiryTone, InventoryItem
 from app.models.telemetry import InventoryWastageReading
@@ -15,7 +16,7 @@ from app.schemas.inventory import (
     WastageReadingOut,
 )
 
-router = APIRouter(prefix="/api/inventory", tags=["inventory"])
+router = APIRouter(prefix="/api/inventory", tags=["inventory"], dependencies=[Depends(get_current_user)])
 
 
 def _derive_expiry_tone(expiry_date: datetime.date) -> ExpiryTone:

@@ -2,6 +2,36 @@ import type { InventoryItem, EquipmentCheck, ProductionBatch, Alert } from '../t
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const WS_URL = API_URL.replace(/^http/, 'ws') + '/ws';
+const TOKEN_KEY = 'foma_auth_token';
+
+// ---- Auth token storage -----------------------------------------------------
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+// Called by App.tsx to react whenever a request comes back 401 (token
+// missing/expired) - e.g. to force the user back to the login screen.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: () => void): void {
+  onUnauthorized = handler;
+}
+
+export type AuthUser = {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  avatar_data: string | null;
+};
 
 // ---- Raw shapes returned by the FastAPI backend ----------------------------
 
@@ -105,15 +135,62 @@ function adaptAlert(raw: RawAlert): Alert {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     ...options,
   });
+
+  if (res.status === 401) {
+    clearToken();
+    onUnauthorized?.();
+    throw new Error('Not authenticated');
+  }
   if (!res.ok) {
     throw new Error(`API error ${res.status} on ${path}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+// ---- Auth -------------------------------------------------------------------
+
+type AuthResponse = { access_token: string; token_type: string; user: AuthUser };
+
+export async function login(email: string, password: string): Promise<AuthUser> {
+  const res = await request<AuthResponse>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+  setToken(res.access_token);
+  return res.user;
+}
+
+export async function register(email: string, password: string, name: string): Promise<AuthUser> {
+  const res = await request<AuthResponse>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, name }),
+  });
+  setToken(res.access_token);
+  return res.user;
+}
+
+export async function fetchCurrentUser(): Promise<AuthUser> {
+  return request<AuthUser>('/api/auth/me');
+}
+
+export async function updateAvatar(base64DataUri: string): Promise<AuthUser> {
+  return request<AuthUser>('/api/auth/me/avatar', {
+    method: 'PATCH',
+    body: JSON.stringify({ avatar_data: base64DataUri }),
+  });
+}
+
+export function logout(): void {
+  clearToken();
 }
 
 // ---- Public API used by App.tsx --------------------------------------------

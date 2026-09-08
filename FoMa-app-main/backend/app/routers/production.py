@@ -3,11 +3,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user
 from app.core.events import event_bus
 from app.models.production import ProductionBatch
 from app.schemas.production import ProductionBatchOut, ProductionBatchUpdate
 
-router = APIRouter(prefix="/api/production", tags=["production"])
+router = APIRouter(prefix="/api/production", tags=["production"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("", response_model=list[ProductionBatchOut])
