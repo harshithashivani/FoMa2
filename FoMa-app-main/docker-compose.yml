@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: foma-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-foma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-foma_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-foma}
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-foma}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: foma-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-foma}:${POSTGRES_PASSWORD:-foma_dev_password}@timescaledb:5432/${POSTGRES_DB:-foma}
+      SYNC_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-foma}:${POSTGRES_PASSWORD:-foma_dev_password}@timescaledb:5432/${POSTGRES_DB:-foma}
+      SIMULATOR_ENABLED: "true"
+      CORS_ORIGINS: "http://localhost:5173"
+    ports:
+      - "8000:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  adminer:
+    image: adminer:latest
+    container_name: foma-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - timescaledb
+
+volumes:
+  timescale_data:
+  

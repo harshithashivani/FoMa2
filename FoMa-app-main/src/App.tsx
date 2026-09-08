@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   AlertTriangle,
   Bell,
@@ -16,8 +16,16 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
-import { initialInventory, equipmentChecks, productionBatches, systemAlerts } from './data';
-import type { InventoryItem, Notification } from './types';
+import {
+  fetchInventory,
+  fetchEquipment,
+  fetchBatches,
+  fetchAlerts,
+  toggleAutoOrder,
+  addInventoryItem,
+  connectLiveUpdates,
+} from './lib/api';
+import type { InventoryItem, EquipmentCheck, ProductionBatch, Alert, Notification } from './types';
 import { DashboardView } from './views/DashboardView';
 import { PlanningView } from './views/PlanningView';
 import { InventoryView } from './views/InventoryView';
@@ -34,7 +42,13 @@ const navItems = [
 ];
 
 function App() {
-  const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [equipmentChecks, setEquipmentChecks] = useState<EquipmentCheck[]>([]);
+  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
+  const [systemAlerts, setSystemAlerts] = useState<Alert[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
   const [query, setQuery] = useState('');
   const [activeNav, setActiveNav] = useState('Dashboard');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -53,6 +67,66 @@ function App() {
     equipmentWarnings: true,
     productionDelays: true,
   });
+
+  // ---- Initial load from the API --------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const [inv, eq, batches, alerts] = await Promise.all([
+          fetchInventory(),
+          fetchEquipment(),
+          fetchBatches(),
+          fetchAlerts(),
+        ]);
+        if (cancelled) return;
+        setInventory(inv);
+        setEquipmentChecks(eq);
+        setProductionBatches(batches);
+        setSystemAlerts(alerts);
+        setLoadError('');
+      } catch (err) {
+        if (!cancelled) setLoadError('Could not reach the FoMa API. Is the backend running?');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---- Live updates over WebSocket -------------------------------------------
+  useEffect(() => {
+    const disconnect = connectLiveUpdates((event) => {
+      if (event.type === 'equipment_metric') {
+        const { equipment_id, status } = event.data as { equipment_id: number; status: string };
+        setEquipmentChecks((items) =>
+          items.map((item) =>
+            item.id === equipment_id ? { ...item, status: status as EquipmentCheck['status'] } : item
+          )
+        );
+      }
+      if (event.type === 'production_update') {
+        const { batch_id, progress, status } = event.data as {
+          batch_id: number;
+          progress: number;
+          status: string;
+        };
+        setProductionBatches((items) =>
+          items.map((item) =>
+            item.id === batch_id
+              ? { ...item, progress, status: status as ProductionBatch['status'] }
+              : item
+          )
+        );
+      }
+    });
+    return disconnect;
+  }, []);
 
   const notifications = useMemo<Notification[]>(() => {
     const items: Notification[] = [];
@@ -73,19 +147,36 @@ function App() {
 
   const unreadCount = notifications.length;
 
-  function toggleOrder(id: number) {
-    setInventory((items) => items.map((item) => item.id === id ? { ...item, autoOrder: !item.autoOrder } : item));
+  async function toggleOrder(id: number) {
+    const target = inventory.find((item) => item.id === id);
+    if (!target) return;
+    const nextValue = !target.autoOrder;
+    setInventory((items) => items.map((item) => item.id === id ? { ...item, autoOrder: nextValue } : item));
+    try {
+      await toggleAutoOrder(id, nextValue);
+    } catch {
+      setInventory((items) => items.map((item) => item.id === id ? { ...item, autoOrder: !nextValue } : item));
+      setNotice('Could not update auto-order — check your connection');
+      window.setTimeout(() => setNotice(''), 3000);
+    }
   }
 
-  function handleAddStock(event: FormEvent<HTMLFormElement>) {
+  async function handleAddStock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const material = String(form.get('material') || '').trim();
     const stock = String(form.get('stock') || '').trim();
     if (!material || !stock) return;
-    setInventory((items) => [...items, { id: Date.now(), material, stock, expiry: '12 Months', expiryTone: 'good', wastage: '0.0%', autoOrder: false }]);
-    setIsAddModalOpen(false);
-    setNotice(`${material} added to inventory`);
+
+    try {
+      await addInventoryItem(material, stock);
+      const refreshed = await fetchInventory();
+      setInventory(refreshed);
+      setIsAddModalOpen(false);
+      setNotice(`${material} added to inventory`);
+    } catch {
+      setNotice('Could not add stock — check your connection');
+    }
     window.setTimeout(() => setNotice(''), 3000);
   }
 
@@ -124,8 +215,22 @@ function App() {
     setIsMenuOpen(false);
   }
 
+  if (isLoading) {
+    return (
+      <div className="app-shell" style={{ alignItems: 'center', justifyContent: 'center', display: 'flex' }}>
+        <p>Loading FoMa Ops…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
+      {loadError && (
+        <div className="emergency-banner">
+          <AlertTriangle size={20} />
+          <div><strong>Connection issue</strong><span>{loadError}</span></div>
+        </div>
+      )}
       <aside className={`sidebar ${isMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand">
           <div className="brand-mark"><Factory size={23} /></div>
