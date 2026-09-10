@@ -35,6 +35,27 @@ METRIC_RANGES = {
     "flow_rate": (10, 120, "L/min"),
 }
 
+# Keeps the description text consistent with whatever status a piece of
+# equipment just flipped to, instead of leaving stale seed-data text
+# ("vibration above threshold") sitting under an unrelated status badge.
+STATUS_DETAILS = {
+    EquipmentStatus.operational: [
+        "Running normally · all sensors nominal",
+        "Operating within normal parameters",
+        "Nominal output · no issues detected",
+    ],
+    EquipmentStatus.warning: [
+        "Vibration above threshold · service recommended",
+        "Reading trending outside normal range",
+        "Minor anomaly detected · monitoring closely",
+    ],
+    EquipmentStatus.offline: [
+        "Manual stop engaged · awaiting maintenance",
+        "Unit offline · service required",
+        "Shutdown triggered · inspection needed",
+    ],
+}
+
 
 async def _tick() -> None:
     async with AsyncSessionLocal() as db:
@@ -60,6 +81,7 @@ async def _tick() -> None:
                     [EquipmentStatus.operational, EquipmentStatus.warning, EquipmentStatus.offline],
                     weights=[0.7, 0.22, 0.08],
                 )[0]
+                eq.detail = random.choice(STATUS_DETAILS[eq.status])
 
             await event_bus.publish(
                 "equipment_metric",
@@ -70,6 +92,7 @@ async def _tick() -> None:
                     "value": value,
                     "unit": unit,
                     "status": eq.status.value,
+                    "detail": eq.detail,
                     "time": now.isoformat(),
                 },
             )

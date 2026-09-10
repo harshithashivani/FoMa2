@@ -23,12 +23,16 @@ import {
   fetchAlerts,
   toggleAutoOrder,
   addInventoryItem,
+  addProductionBatch,
   connectLiveUpdates,
   getToken,
   fetchCurrentUser,
   logout as apiLogout,
   setUnauthorizedHandler,
   updateAvatar,
+  fetchFacilityState,
+  triggerEmergencyStop,
+  resumeOperations,
   type AuthUser,
 } from './lib/api';
 import type { InventoryItem, EquipmentCheck, ProductionBatch, Alert, Notification } from './types';
@@ -67,6 +71,7 @@ function App() {
   const [activeNav, setActiveNav] = useState('Dashboard');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAddBatchModalOpen, setIsAddBatchModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
@@ -117,17 +122,19 @@ function App() {
 
     async function load() {
       try {
-        const [inv, eq, batches, alerts] = await Promise.all([
+        const [inv, eq, batches, alerts, facilityState] = await Promise.all([
           fetchInventory(),
           fetchEquipment(),
           fetchBatches(),
           fetchAlerts(),
+          fetchFacilityState(),
         ]);
         if (cancelled) return;
         setInventory(inv);
         setEquipmentChecks(eq);
         setProductionBatches(batches);
         setSystemAlerts(alerts);
+        setIsEmergencyActive(facilityState.emergency_active);
         setLoadError('');
       } catch (err) {
         if (!cancelled) setLoadError('Could not reach the FoMa API. Is the backend running?');
@@ -147,10 +154,16 @@ function App() {
     if (!authUser) return;
     const disconnect = connectLiveUpdates((event) => {
       if (event.type === 'equipment_metric') {
-        const { equipment_id, status } = event.data as { equipment_id: number; status: string };
+        const { equipment_id, status, detail } = event.data as {
+          equipment_id: number;
+          status: string;
+          detail?: string;
+        };
         setEquipmentChecks((items) =>
           items.map((item) =>
-            item.id === equipment_id ? { ...item, status: status as EquipmentCheck['status'] } : item
+            item.id === equipment_id
+              ? { ...item, status: status as EquipmentCheck['status'], detail: detail ?? item.detail }
+              : item
           )
         );
       }
@@ -167,6 +180,10 @@ function App() {
               : item
           )
         );
+      }
+      if (event.type === 'facility_state') {
+        const { emergency_active } = event.data as { emergency_active: boolean };
+        setIsEmergencyActive(emergency_active);
       }
     });
     return disconnect;
@@ -190,6 +207,7 @@ function App() {
   }, [inventory, dismissedNotifications, notifSettings]);
 
   const unreadCount = notifications.length;
+  const isManager = authUser?.role.toLowerCase() === 'plant manager';
 
   async function toggleOrder(id: number) {
     const target = inventory.find((item) => item.id === id);
@@ -224,6 +242,30 @@ function App() {
     window.setTimeout(() => setNotice(''), 3000);
   }
 
+  async function handleAddBatch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const product = String(form.get('product') || '').trim();
+    const start = String(form.get('start') || '').trim();
+    const end = String(form.get('end') || '').trim();
+    if (!product || !start || !end) return;
+
+    try {
+      await addProductionBatch(product, start, end);
+      const refreshed = await fetchBatches();
+      setProductionBatches(refreshed);
+      setIsAddBatchModalOpen(false);
+      setNotice(`${product} added to production schedule`);
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.includes('403')
+          ? 'Only a Plant Manager can add production batches'
+          : 'Could not add batch — check your connection';
+      setNotice(message);
+    }
+    window.setTimeout(() => setNotice(''), 3000);
+  }
+
   function handleReport() {
     setNotice('Report ready to download');
     window.setTimeout(() => setNotice(''), 3000);
@@ -241,16 +283,34 @@ function App() {
     setOpenPanel((current) => (current === panel ? 'none' : panel));
   }
 
-  function handleEmergencyConfirm() {
-    setIsEmergencyActive(true);
+  async function handleEmergencyConfirm() {
     setIsEmergencyModalOpen(false);
-    setNotice('Emergency stop activated — all production halted');
+    try {
+      await triggerEmergencyStop();
+      setIsEmergencyActive(true);
+      setNotice('Emergency stop activated — all production halted');
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.includes('403')
+          ? 'Only a Plant Manager can trigger Emergency Stop'
+          : 'Could not activate Emergency Stop — check your connection';
+      setNotice(message);
+    }
     window.setTimeout(() => setNotice(''), 4000);
   }
 
-  function handleEmergencyResume() {
-    setIsEmergencyActive(false);
-    setNotice('Operations resumed — production schedule active');
+  async function handleEmergencyResume() {
+    try {
+      await resumeOperations();
+      setIsEmergencyActive(false);
+      setNotice('Operations resumed — production schedule active');
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.includes('403')
+          ? 'Only a Plant Manager can resume operations'
+          : 'Could not resume operations — check your connection';
+      setNotice(message);
+    }
     window.setTimeout(() => setNotice(''), 3000);
   }
 
@@ -325,7 +385,12 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button className={`emergency-button ${isEmergencyActive ? 'engaged' : ''}`} onClick={() => isEmergencyActive ? handleEmergencyResume() : setIsEmergencyModalOpen(true)}>
+          <button
+            className={`emergency-button ${isEmergencyActive ? 'engaged' : ''}`}
+            onClick={() => isEmergencyActive ? handleEmergencyResume() : setIsEmergencyModalOpen(true)}
+            disabled={!isManager}
+            title={isManager ? undefined : 'Plant Manager access required'}
+          >
             <AlertTriangle size={15} /> {isEmergencyActive ? 'Resume Operations' : 'Emergency Stop'}
           </button>
           <div className="utility-nav">
@@ -441,13 +506,21 @@ function App() {
           <div className="emergency-banner">
             <AlertTriangle size={20} />
             <div><strong>Emergency Stop Active</strong><span>All production halted and equipment in safe standby. Resume when ready.</span></div>
-            <button className="emergency-resume-btn" onClick={handleEmergencyResume}><Play size={15} /> Resume Operations</button>
+            {isManager && (
+              <button className="emergency-resume-btn" onClick={handleEmergencyResume}><Play size={15} /> Resume Operations</button>
+            )}
           </div>
         )}
 
         <div className="page-content">
           {activeNav === 'Dashboard' && <DashboardView inventory={inventory} alerts={systemAlerts} batches={productionBatches} onNavigate={navigate} />}
-          {activeNav === 'Planning' && <PlanningView batches={productionBatches} />}
+          {activeNav === 'Planning' && (
+            <PlanningView
+              batches={productionBatches}
+              onAddBatch={() => setIsAddBatchModalOpen(true)}
+              canAddBatch={isManager}
+            />
+          )}
           {activeNav === 'Inventory' && <InventoryView inventory={inventory} query={query} onQueryChange={setQuery} onToggleOrder={toggleOrder} onAddStock={() => setIsAddModalOpen(true)} onReport={handleReport} />}
           {activeNav === 'Analytics' && <AnalyticsView inventory={inventory} alerts={systemAlerts} />}
           <footer>© 2024 FoMa Industrial Systems. All rights reserved.</footer>
@@ -460,6 +533,19 @@ function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-heading"><div><h2>Add Stock</h2><p>Register a new raw material.</p></div><button onClick={() => setIsAddModalOpen(false)} aria-label="Close"><X size={18} /></button></div>
             <form onSubmit={handleAddStock}><label>Material name<input name="material" placeholder="e.g. Vanilla Extract" autoFocus required /></label><label>Current stock<input name="stock" placeholder="e.g. 500 kg" required /></label><button className="primary-button" type="submit">Add to inventory</button></form>
+          </div>
+        </div>
+      )}
+      {isAddBatchModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsAddBatchModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-heading"><div><h2>Add Batch</h2><p>Schedule a new production batch.</p></div><button onClick={() => setIsAddBatchModalOpen(false)} aria-label="Close"><X size={18} /></button></div>
+            <form onSubmit={handleAddBatch}>
+              <label>Product name<input name="product" placeholder="e.g. Sourdough Loaf 750g" autoFocus required /></label>
+              <label>Start time<input name="start" placeholder="e.g. 06:00" required /></label>
+              <label>End time<input name="end" placeholder="e.g. 14:00" required /></label>
+              <button className="primary-button" type="submit">Add to schedule</button>
+            </form>
           </div>
         </div>
       )}

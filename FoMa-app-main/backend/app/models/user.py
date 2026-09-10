@@ -13,7 +13,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    role: Mapped[str] = mapped_column(String(50), nullable=False, default="operator")
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="Operator")
     # Stored as a base64 data URI (e.g. "data:image/png;base64,...."). Fine
     # for a small demo photo; swap for an object-storage URL if this needs
     # to scale to many/large images later.

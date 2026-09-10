@@ -12,14 +12,8 @@ export function AnalyticsView({ inventory, alerts }: Props) {
   const urgentItems = inventory.filter((i) => i.expiryTone === 'urgent').length;
   const autoOrderCount = inventory.filter((i) => i.autoOrder).length;
 
-  const wasteData = [
-    { material: 'Industrial Flour Type A', rate: 2.4 },
-    { material: 'Granulated Sugar', rate: 1.1 },
-    { material: 'Palm Oil Blend', rate: 8.5 },
-    { material: 'Cocoa Powder', rate: 3.2 },
-    { material: 'Salt (Bulk)', rate: 0.5 },
-  ];
-  const maxWaste = Math.max(...wasteData.map((d) => d.rate));
+  const wasteData = inventory.map((item) => ({ material: item.material, rate: parseFloat(item.wastage) }));
+  const maxWaste = Math.max(1, ...wasteData.map((d) => d.rate));
 
   return (
     <>

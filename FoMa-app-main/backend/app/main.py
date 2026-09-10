@@ -9,12 +9,13 @@ from sqlalchemy import create_engine, text
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.db.seed import seed_if_empty
-from app.routers import alerts, analytics, auth, equipment, inventory, notifications, production, settings as settings_router, ws
+from app.routers import alerts, analytics, auth, equipment, facility, inventory, notifications, production, settings as settings_router, ws
 from app.services.simulator import run_simulator
 
 # Import all models so they're registered on Base.metadata before create_all.
 from app.models import alerts as _alerts_models  # noqa: F401
 from app.models import equipment as _equipment_models  # noqa: F401
+from app.models import facility as _facility_models  # noqa: F401
 from app.models import inventory as _inventory_models  # noqa: F401
 from app.models import production as _production_models  # noqa: F401
 from app.models import settings as _settings_models  # noqa: F401
@@ -43,6 +44,27 @@ def _run_timescale_init() -> None:
     sync_engine.dispose()
 
 
+# Lightweight safety net for schema drift: Base.metadata.create_all only
+# creates missing TABLES, never adds columns to a table that already
+# exists. Rather than requiring a full DB wipe (`docker compose down -v`)
+# every time a model gains a new column, list "add this column if it's
+# missing" statements here — safe to run on every startup, no-ops once
+# the column exists. For anything beyond simple additive columns (renames,
+# type changes, dropped columns), a real migration tool (Alembic) is the
+# right call instead.
+_ADDITIVE_COLUMN_MIGRATIONS = [
+    'ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data TEXT',
+]
+
+
+def _run_safety_migrations() -> None:
+    sync_engine = create_engine(settings.SYNC_DATABASE_URL)
+    with sync_engine.begin() as conn:
+        for statement in _ADDITIVE_COLUMN_MIGRATIONS:
+            conn.execute(text(statement))
+    sync_engine.dispose()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _simulator_task
@@ -51,6 +73,10 @@ async def lifespan(app: FastAPI):
     # once the schema stabilizes).
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Patch in any additive columns added to models since the tables were
+    # first created (see _ADDITIVE_COLUMN_MIGRATIONS above).
+    _run_safety_migrations()
 
     # Convert telemetry tables into TimescaleDB hypertables.
     _run_timescale_init()
@@ -78,6 +104,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(facility.router)
 app.include_router(inventory.router)
 app.include_router(equipment.router)
 app.include_router(production.router)

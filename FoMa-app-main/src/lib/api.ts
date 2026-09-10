@@ -210,9 +210,30 @@ export async function fetchBatches(): Promise<ProductionBatch[]> {
   return raw.map(adaptBatch);
 }
 
+export async function addProductionBatch(product: string, start: string, end: string): Promise<void> {
+  await request('/api/production', {
+    method: 'POST',
+    body: JSON.stringify({ product, start_time: start, end_time: end }),
+  });
+}
+
 export async function fetchAlerts(): Promise<Alert[]> {
   const raw = await request<RawAlert[]>('/api/alerts');
   return raw.map(adaptAlert);
+}
+
+// ---- Facility state (emergency stop) -----------------------------------------
+
+export async function fetchFacilityState(): Promise<{ emergency_active: boolean }> {
+  return request('/api/facility/state');
+}
+
+export async function triggerEmergencyStop(): Promise<{ emergency_active: boolean }> {
+  return request('/api/facility/emergency-stop', { method: 'POST' });
+}
+
+export async function resumeOperations(): Promise<{ emergency_active: boolean }> {
+  return request('/api/facility/resume', { method: 'POST' });
 }
 
 export async function toggleAutoOrder(id: number, autoOrder: boolean): Promise<void> {

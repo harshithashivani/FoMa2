@@ -3,6 +3,8 @@ import type { ProductionBatch } from '../types';
 
 type Props = {
   batches: ProductionBatch[];
+  onAddBatch: () => void;
+  canAddBatch: boolean;
 };
 
 const statusConfig = {
@@ -12,7 +14,7 @@ const statusConfig = {
   delayed: { icon: AlertCircle, label: 'Delayed', color: 'red' },
 } as const;
 
-export function PlanningView({ batches }: Props) {
+export function PlanningView({ batches, onAddBatch, canAddBatch }: Props) {
   return (
     <>
       <div className="page-header">
@@ -20,7 +22,20 @@ export function PlanningView({ batches }: Props) {
       </div>
 
       <section className="card planning-card">
-        <div className="card-heading"><h2>Today's Production Schedule</h2><span><CalendarDays size={13} /> {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span></div>
+        <div className="card-heading">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <h2>Today's Production Schedule</h2>
+            <button
+              className="clear-all"
+              onClick={onAddBatch}
+              disabled={!canAddBatch}
+              title={canAddBatch ? undefined : 'Plant Manager access required'}
+            >
+              + Add Batch
+            </button>
+          </div>
+          <span><CalendarDays size={13} /> {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
+        </div>
         <div className="batch-list">
           {batches.map((batch) => {
             const cfg = statusConfig[batch.status];

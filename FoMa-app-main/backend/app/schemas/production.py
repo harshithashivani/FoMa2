@@ -14,6 +14,14 @@ class ProductionBatchOut(BaseModel):
     progress: int
 
 
+class ProductionBatchCreate(BaseModel):
+    product: str
+    start_time: str
+    end_time: str
+    status: BatchStatus = BatchStatus.scheduled
+    progress: int = 0
+
+
 class ProductionBatchUpdate(BaseModel):
     status: BatchStatus | None = None
     progress: int | None = None

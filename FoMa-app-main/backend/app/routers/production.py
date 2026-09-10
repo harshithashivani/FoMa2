@@ -3,10 +3,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_role
 from app.core.events import event_bus
 from app.models.production import ProductionBatch
-from app.schemas.production import ProductionBatchOut, ProductionBatchUpdate
+from app.schemas.production import ProductionBatchCreate, ProductionBatchOut, ProductionBatchUpdate
 
 router = APIRouter(prefix="/api/production", tags=["production"], dependencies=[Depends(get_current_user)])
 
@@ -15,6 +15,23 @@ router = APIRouter(prefix="/api/production", tags=["production"], dependencies=[
 async def list_batches(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ProductionBatch).order_by(ProductionBatch.start_time))
     return result.scalars().all()
+
+
+@router.post(
+    "",
+    response_model=ProductionBatchOut,
+    status_code=201,
+    dependencies=[Depends(require_role("Plant Manager"))],
+)
+async def create_batch(payload: ProductionBatchCreate, db: AsyncSession = Depends(get_db)):
+    batch = ProductionBatch(**payload.model_dump())
+    db.add(batch)
+    await db.commit()
+    await db.refresh(batch)
+    await event_bus.publish(
+        "production_created", {"batch_id": batch.id, "product": batch.product, "status": batch.status.value}
+    )
+    return batch
 
 
 @router.patch("/{batch_id}", response_model=ProductionBatchOut)
