@@ -29,18 +29,36 @@ _simulator_task: asyncio.Task | None = None
 
 
 def _run_timescale_init() -> None:
-    """Runs init_timescale.sql with a sync engine (simpler for raw DDL)."""
+    """Runs init_timescale.sql with a sync engine (simpler for raw DDL).
+
+    Each statement runs in its own transaction and failures are logged
+    rather than raised. This matters because some managed Postgres hosts
+    (e.g. Render) only ship the Apache-2 edition of TimescaleDB, which
+    doesn't include retention-policy functions (a paid "Community"
+    feature) - without this, one unsupported statement would abort the
+    whole startup even though hypertable creation itself works fine.
+    """
     import pathlib
 
     sql_path = pathlib.Path(__file__).parent / "db" / "init_timescale.sql"
     sql = sql_path.read_text()
 
     sync_engine = create_engine(settings.SYNC_DATABASE_URL)
-    with sync_engine.begin() as conn:
-        for statement in sql.split(";"):
-            statement = statement.strip()
-            if statement:
+    for statement in sql.split(";"):
+        statement = statement.strip()
+        if not statement:
+            continue
+        try:
+            with sync_engine.begin() as conn:
                 conn.execute(text(statement))
+        except Exception as exc:
+            logger.warning(
+                "Skipping a TimescaleDB init statement (likely an unsupported "
+                "feature on this Postgres host, e.g. Community-only retention "
+                "policies on managed Postgres). Statement: %.80s... | %s",
+                statement,
+                exc,
+            )
     sync_engine.dispose()
 
 
