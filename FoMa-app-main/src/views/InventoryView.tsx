@@ -1,4 +1,4 @@
-import { FileDown, Plus, Search, TrendingUp } from 'lucide-react';
+import { FileDown, Plus, Search, TrendingUp, Trash2 } from 'lucide-react';
 import type { InventoryItem } from '../types';
 
 type Props = {
@@ -8,9 +8,10 @@ type Props = {
   onToggleOrder: (id: number) => void;
   onAddStock: () => void;
   onReport: () => void;
+  onDeleteItem: (id: number, material: string) => void;
 };
 
-export function InventoryView({ inventory, query, onQueryChange, onToggleOrder, onAddStock, onReport }: Props) {
+export function InventoryView({ inventory, query, onQueryChange, onToggleOrder, onAddStock, onReport, onDeleteItem }: Props) {
   const filtered = inventory.filter((item) => item.material.toLowerCase().includes(query.toLowerCase()));
 
   return (
@@ -34,7 +35,7 @@ export function InventoryView({ inventory, query, onQueryChange, onToggleOrder, 
         </div>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Material</th><th>Current Stock</th><th>Expiry Status</th><th>Wastage Rate</th><th>Auto-Order</th></tr></thead>
+            <thead><tr><th>Material</th><th>Current Stock</th><th>Expiry Status</th><th>Wastage Rate</th><th>Auto-Order</th><th></th></tr></thead>
             <tbody>
               {filtered.map((item) => (
                 <tr key={item.id} className={item.expiryTone === 'urgent' ? 'urgent-row' : ''}>
@@ -43,9 +44,19 @@ export function InventoryView({ inventory, query, onQueryChange, onToggleOrder, 
                   <td><span className={`expiry-pill ${item.expiryTone}`}><i />{item.expiry}</span></td>
                   <td className={item.expiryTone === 'urgent' ? 'urgent-text wastage' : 'wastage'}>{item.wastage}{item.expiryTone === 'urgent' && <TrendingUp size={13} />}</td>
                   <td><button className={`toggle ${item.autoOrder ? 'on' : ''}`} onClick={() => onToggleOrder(item.id)} aria-label={`Toggle auto-order for ${item.material}`}><span /></button></td>
+                  <td>
+                    <button
+                      onClick={() => onDeleteItem(item.id, item.material)}
+                      aria-label={`Delete ${item.material}`}
+                      title="Delete material"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', padding: '4px' }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td className="empty-state" colSpan={5}>No materials match your search.</td></tr>}
+              {filtered.length === 0 && <tr><td className="empty-state" colSpan={6}>No materials match your search.</td></tr>}
             </tbody>
           </table>
         </div>

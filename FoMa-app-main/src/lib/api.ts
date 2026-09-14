@@ -189,6 +189,24 @@ export async function updateAvatar(base64DataUri: string): Promise<AuthUser> {
   });
 }
 
+export async function removeAvatar(): Promise<AuthUser> {
+  return request<AuthUser>('/api/auth/me/avatar', { method: 'DELETE' });
+}
+
+export async function updateProfile(name: string): Promise<AuthUser> {
+  return request<AuthUser>('/api/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function resetPassword(email: string, newPassword: string): Promise<void> {
+  await request('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, new_password: newPassword }),
+  });
+}
+
 export function logout(): void {
   clearToken();
 }
@@ -205,6 +223,10 @@ export async function fetchEquipment(): Promise<EquipmentCheck[]> {
   return raw.map(adaptEquipment);
 }
 
+export async function deleteInventoryItem(id: number): Promise<void> {
+  await request(`/api/inventory/${id}`, { method: 'DELETE' });
+}
+
 export async function fetchBatches(): Promise<ProductionBatch[]> {
   const raw = await request<RawBatch[]>('/api/production');
   return raw.map(adaptBatch);
@@ -215,6 +237,10 @@ export async function addProductionBatch(product: string, start: string, end: st
     method: 'POST',
     body: JSON.stringify({ product, start_time: start, end_time: end }),
   });
+}
+
+export async function deleteProductionBatch(id: number): Promise<void> {
+  await request(`/api/production/${id}`, { method: 'DELETE' });
 }
 
 export async function fetchAlerts(): Promise<Alert[]> {

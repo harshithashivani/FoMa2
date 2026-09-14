@@ -50,3 +50,18 @@ async def update_batch(batch_id: int, payload: ProductionBatchUpdate, db: AsyncS
         "production_update", {"batch_id": batch.id, "progress": batch.progress, "status": batch.status.value}
     )
     return batch
+
+
+@router.delete(
+    "/{batch_id}",
+    status_code=204,
+    dependencies=[Depends(require_role("Plant Manager"))],
+)
+async def delete_batch(batch_id: int, db: AsyncSession = Depends(get_db)):
+    batch = await db.get(ProductionBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    await db.delete(batch)
+    await db.commit()
+    await event_bus.publish("production_deleted", {"batch_id": batch_id})

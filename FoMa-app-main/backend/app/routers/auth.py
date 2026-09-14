@@ -6,7 +6,15 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
-from app.schemas.auth import AvatarUpdateRequest, LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.schemas.auth import (
+    AvatarUpdateRequest,
+    LoginRequest,
+    PasswordResetRequest,
+    ProfileUpdateRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserOut,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -62,3 +70,44 @@ async def update_avatar(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+
+@router.delete("/me/avatar", response_model=UserOut)
+async def remove_avatar(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user.avatar_data = None
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_profile(
+    payload: ProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user.name = payload.name
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.post("/reset-password", status_code=204)
+async def reset_password(payload: PasswordResetRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Resets a user's password given only their email - no proof of email
+    ownership required, since this app has no email-sending capability
+    configured yet. Always responds the same way whether or not the email
+    exists, so this endpoint alone can't be used to check which emails are
+    registered - but it genuinely does let anyone who knows an account's
+    email address take it over. Fine for local testing; replace with a
+    real emailed reset-link flow before relying on this for real accounts.
+    """
+    result = await db.execute(select(User).where(User.email == payload.email))
+    user = result.scalar_one_or_none()
+    if user is not None:
+        user.hashed_password = hash_password(payload.new_password)
+        await db.commit()

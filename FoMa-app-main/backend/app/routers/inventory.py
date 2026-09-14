@@ -1,7 +1,7 @@
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -74,3 +74,20 @@ async def wastage_history(item_id: int, db: AsyncSession = Depends(get_db)):
         .limit(500)
     )
     return result.scalars().all()
+
+
+@router.delete("/{item_id}", status_code=204)
+async def delete_inventory_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    item = await db.get(InventoryItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    # Clean up dependent wastage-history rows first - they reference this
+    # item via a foreign key with no cascade, so deleting the item first
+    # would fail with a constraint error otherwise.
+    await db.execute(
+        delete(InventoryWastageReading).where(InventoryWastageReading.inventory_item_id == item_id)
+    )
+    await db.delete(item)
+    await db.commit()
+    await event_bus.publish("inventory_deleted", {"id": item_id})

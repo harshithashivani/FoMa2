@@ -23,13 +23,17 @@ import {
   fetchAlerts,
   toggleAutoOrder,
   addInventoryItem,
+  deleteInventoryItem,
   addProductionBatch,
+  deleteProductionBatch,
   connectLiveUpdates,
   getToken,
   fetchCurrentUser,
   logout as apiLogout,
   setUnauthorizedHandler,
   updateAvatar,
+  removeAvatar,
+  updateProfile,
   fetchFacilityState,
   triggerEmergencyStop,
   resumeOperations,
@@ -58,6 +62,9 @@ const DEFAULT_AVATAR_URL =
 function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [avatarError, setAvatarError] = useState('');
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileNameDraft, setProfileNameDraft] = useState('');
+  const [profileError, setProfileError] = useState('');
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -339,6 +346,66 @@ function App() {
     reader.readAsDataURL(file);
   }
 
+  async function handleRemoveAvatar() {
+    try {
+      const updated = await removeAvatar();
+      setAuthUser(updated);
+    } catch {
+      setAvatarError('Could not remove photo — check your connection');
+      window.setTimeout(() => setAvatarError(''), 4000);
+    }
+  }
+
+  function startEditingProfile() {
+    if (!authUser) return;
+    setProfileNameDraft(authUser.name);
+    setProfileError('');
+    setIsEditingProfile(true);
+  }
+
+  async function handleSaveProfile() {
+    const trimmed = profileNameDraft.trim();
+    if (!trimmed) {
+      setProfileError('Name cannot be empty');
+      return;
+    }
+    try {
+      const updated = await updateProfile(trimmed);
+      setAuthUser(updated);
+      setIsEditingProfile(false);
+    } catch {
+      setProfileError('Could not save — check your connection');
+    }
+  }
+
+  async function handleDeleteInventoryItem(id: number, material: string) {
+    if (!window.confirm(`Delete ${material} from inventory? This cannot be undone.`)) return;
+    try {
+      await deleteInventoryItem(id);
+      setInventory((items) => items.filter((item) => item.id !== id));
+      setNotice(`${material} removed from inventory`);
+    } catch {
+      setNotice('Could not delete item — check your connection');
+    }
+    window.setTimeout(() => setNotice(''), 3000);
+  }
+
+  async function handleDeleteBatch(id: number, product: string) {
+    if (!window.confirm(`Delete ${product} from the schedule? This cannot be undone.`)) return;
+    try {
+      await deleteProductionBatch(id);
+      setProductionBatches((items) => items.filter((item) => item.id !== id));
+      setNotice(`${product} removed from schedule`);
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.includes('403')
+          ? 'Only a Plant Manager can delete production batches'
+          : 'Could not delete batch — check your connection';
+      setNotice(message);
+    }
+    window.setTimeout(() => setNotice(''), 3000);
+  }
+
   function navigate(page: string) {
     setActiveNav(page);
     setIsMenuOpen(false);
@@ -462,7 +529,7 @@ function App() {
                 <div className="dropdown-panel profile-panel" onClick={(e) => e.stopPropagation()}>
                   <div className="panel-header">
                     <div><h3>Plant Manager</h3></div>
-                    <button onClick={() => setOpenPanel('none')} aria-label="Close"><X size={16} /></button>
+                    <button onClick={() => { setOpenPanel('none'); setIsEditingProfile(false); }} aria-label="Close"><X size={16} /></button>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
                     <img
@@ -475,11 +542,33 @@ function App() {
                       Change photo
                       <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
                     </label>
+                    {authUser.avatar_data && (
+                      <button className="clear-all" onClick={handleRemoveAvatar}>Remove photo</button>
+                    )}
                   </div>
                   {avatarError && <p style={{ color: '#c0392b', fontSize: 12, padding: '0 16px' }}>{avatarError}</p>}
                   <div className="panel-list">
                     <div className="safety-item">
-                      <div><strong>{authUser.name}</strong><p>{authUser.email}</p></div>
+                      {isEditingProfile ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+                          <input
+                            value={profileNameDraft}
+                            onChange={(e) => setProfileNameDraft(e.target.value)}
+                            autoFocus
+                            style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13 }}
+                          />
+                          {profileError && <span style={{ color: '#c0392b', fontSize: 12 }}>{profileError}</span>}
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="primary-button" style={{ padding: '4px 10px', fontSize: 12 }} onClick={handleSaveProfile}>Save</button>
+                            <button className="clear-all" onClick={() => setIsEditingProfile(false)}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div><strong>{authUser.name}</strong><p>{authUser.email}</p></div>
+                          <button className="clear-all" onClick={startEditingProfile} aria-label="Edit name">Edit</button>
+                        </>
+                      )}
                     </div>
                     <div className="safety-item">
                       <div><strong>Facility 01</strong><p>{authUser.role}</p></div>
@@ -519,9 +608,21 @@ function App() {
               batches={productionBatches}
               onAddBatch={() => setIsAddBatchModalOpen(true)}
               canAddBatch={isManager}
+              onDeleteBatch={handleDeleteBatch}
+              canDeleteBatch={isManager}
             />
           )}
-          {activeNav === 'Inventory' && <InventoryView inventory={inventory} query={query} onQueryChange={setQuery} onToggleOrder={toggleOrder} onAddStock={() => setIsAddModalOpen(true)} onReport={handleReport} />}
+          {activeNav === 'Inventory' && (
+            <InventoryView
+              inventory={inventory}
+              query={query}
+              onQueryChange={setQuery}
+              onToggleOrder={toggleOrder}
+              onAddStock={() => setIsAddModalOpen(true)}
+              onReport={handleReport}
+              onDeleteItem={handleDeleteInventoryItem}
+            />
+          )}
           {activeNav === 'Analytics' && <AnalyticsView inventory={inventory} alerts={systemAlerts} />}
           <footer>© 2024 FoMa Industrial Systems. All rights reserved.</footer>
         </div>

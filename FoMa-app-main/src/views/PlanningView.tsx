@@ -1,10 +1,12 @@
-import { Clock, PlayCircle, CheckCircle2, AlertCircle, CalendarDays } from 'lucide-react';
+import { Clock, PlayCircle, CheckCircle2, AlertCircle, CalendarDays, Trash2 } from 'lucide-react';
 import type { ProductionBatch } from '../types';
 
 type Props = {
   batches: ProductionBatch[];
   onAddBatch: () => void;
   canAddBatch: boolean;
+  onDeleteBatch: (id: number, product: string) => void;
+  canDeleteBatch: boolean;
 };
 
 const statusConfig = {
@@ -14,7 +16,7 @@ const statusConfig = {
   delayed: { icon: AlertCircle, label: 'Delayed', color: 'red' },
 } as const;
 
-export function PlanningView({ batches, onAddBatch, canAddBatch }: Props) {
+export function PlanningView({ batches, onAddBatch, canAddBatch, onDeleteBatch, canDeleteBatch }: Props) {
   return (
     <>
       <div className="page-header">
@@ -49,6 +51,16 @@ export function PlanningView({ batches, onAddBatch, canAddBatch }: Props) {
                   <div className="batch-progress-bar"><div className={`batch-progress-fill ${cfg.color}`} style={{ width: `${batch.progress}%` }} /></div>
                   <span className={`batch-status-label ${cfg.color}`}>{cfg.label}</span>
                 </div>
+                {canDeleteBatch && (
+                  <button
+                    onClick={() => onDeleteBatch(batch.id, batch.product)}
+                    aria-label={`Delete ${batch.product}`}
+                    title="Delete batch"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c0392b', padding: '4px', marginLeft: 8 }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
             );
           })}
