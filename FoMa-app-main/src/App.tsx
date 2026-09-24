@@ -56,8 +56,19 @@ const navItems = [
   { label: 'Analytics', icon: TrendingUp },
 ];
 
+// Generic "no photo set" placeholder - a plain silhouette on a neutral
+// grey circle, the same idea as Instagram/WhatsApp's default avatar.
+// Built as an inline SVG data URI so it never depends on an external
+// image host being reachable.
 const DEFAULT_AVATAR_URL =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuAyxkVEHZxRm-BK7zr54xDb2z8c3ZrpcuEhFd-xhu6GaPQNOtZZqofJRWCZvvtcowUi9HWrT9KOxY_aQwpHcOronlDtQQeK-HSAwZ604zF-b4zGllVb_svxCiwL-vNKBsptWQwksHYkQG5O6eH6ZRnigQfq-3lPb83eccJamb40V2ta2HQnzC2udCLDgC3pkXNhbnP9GqJnmqwE3eC3FaeSBrGJQdMBsHlkC7xpTK8hOFLhPseBPY6P';
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="50" fill="#DDDFE2"/>
+      <circle cx="50" cy="40" r="18" fill="#AEB2B8"/>
+      <path d="M50 62c-19 0-34 12-34 27v11h68V89c0-15-15-27-34-27z" fill="#AEB2B8"/>
+    </svg>`
+  );
 
 function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
